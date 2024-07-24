@@ -1,0 +1,660 @@
+---
+title: "Data Science Project"
+author: "Danylo Bachynskyi"
+date: "`r format(Sys.Date(), '%m/%d/%y')`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r set options, include=FALSE}
+# DO NOT CHANGE THE LINE BELOW 
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+``` {css styling, echo=FALSE}
+
+<style>
+.tocify {
+max-width: 175px !important;
+}
+</style>
+
+<style>
+.main-container {
+width: 100%;
+max-width: 940px;
+margin-left: 250px;
+margin-right: auto;
+}
+</style>
+
+<style>
+.red-header {
+  color: red;
+}
+</style>
+
+```
+
+
+# Setup and Data    
+
+```{r load data, message = F, warning = F}
+#install.packages('tidyverse')
+library(tidyverse)
+# Note, you will likely have to change these paths. If your data is in the same folder as this project, 
+# the paths will likely be fixed for you by deleting ../../Data/awards_project/ from each string.
+player_data <- read_csv("/Users/danylo/Downloads/Datasets/player_game_data.csv")
+team_data <- read_csv("/Users/danylo/Downloads/Datasets/team_game_data.csv")
+```
+
+```{r}
+# Filtering for the needed part of data, and finding Warriors' offensive eFG%
+warriors_offensive <- team_data %>%
+  filter(season == 2015, off_team_name == "Golden State Warriors")
+warriors_offensive_efg <- with(warriors_offensive, (sum(fgmade) + 0.5 * sum(fg3made)) / sum(fgattempted))
+# Filtering for the needed part of data, and finding Warriors' defensive eFG%
+warriors_defensive <- team_data %>%
+  filter(season == 2015, def_team_name == "Golden State Warriors")
+warriors_defensive_efg <- with(warriors_defensive, (sum(fgmade) + 0.5 * sum(fg3made)) / sum(fgattempted))
+# For printing
+warriors_offensive_efg
+warriors_defensive_efg
+```
+
+
+```{r}
+# Looking for games to use and addind variables that I will later use
+q2_games <- team_data %>%
+  filter(season >= 2014, season <= 2023, gametype == 2) %>%
+  mutate(home_efg = case_when(off_home == 1 ~ (fgmade + 0.5 * fg3made) / fgattempted, .default = 0),
+         away_efg = case_when(off_home == 0 ~ (fgmade + 0.5 * fg3made) / fgattempted, .default = 0),
+         home_win = case_when((off_home == off_win) ~ 1, .default = 0),
+         home_team = case_when(off_home == 1 ~ off_team_name, .default = def_team_name),
+         away_team = case_when(off_home == 1 ~ def_team_name, .default = off_team_name))
+# Grouping by gameID to "create" game instances, removing cases with equal eFG%
+games_grouped <- q2_games %>%
+  group_by(nbagameid) %>%
+  summarise(home_team = first(home_team),
+            away_team = first(away_team),
+            home_efg = max(home_efg),
+            away_efg = max(away_efg),
+            home_win = first(home_win)) %>%
+  filter(home_efg != away_efg) %>%
+  mutate(home_higher_efg = case_when(home_efg > away_efg ~ 1, .default = 0))
+# Separating instances where team with the higher eFG% wins the game
+games_grouped_and_filtered <- games_grouped%>%
+  filter(home_higher_efg == home_win)
+# Finding probability
+print(100*nrow(games_grouped_and_filtered)/nrow(games_grouped))
+```
+
+
+```{r}
+# Looking for games to use and addind variables that I will later use
+q3_games <- team_data %>%
+  filter(season >= 2014, season <= 2023, gametype == 2) %>%
+  mutate(home_reboffensive = case_when(off_home == 1 ~ reboffensive, .default = 0),
+         away_reboffensive = case_when(off_home == 0 ~ reboffensive, .default = 0),
+         home_win = case_when((off_home == off_win) ~ 1, .default = 0),
+         home_team = case_when(off_home == 1 ~ off_team_name, .default = def_team_name),
+         away_team = case_when(off_home == 1 ~ def_team_name, .default = off_team_name))
+# Grouping by gameID to "create" game instances, removing cases with equal number of offensive rebounds
+games_grouped <- q3_games %>%
+  group_by(nbagameid) %>%
+  summarise(home_team = first(home_team),
+            away_team = first(away_team),
+            home_reboffensive = max(home_reboffensive),
+            away_reboffensive = max(away_reboffensive),
+            home_win = first(home_win)) %>%
+  filter(home_reboffensive != away_reboffensive) %>%
+  mutate(home_more_reboffensive = case_when(home_reboffensive > away_reboffensive ~ 1, .default = 0))
+# Separating instances where team with the more offensive rebounds wins the game
+games_grouped_and_filtered <- games_grouped%>%
+  filter(home_more_reboffensive == home_win)
+# Finding probability
+print(100*nrow(games_grouped_and_filtered)/nrow(games_grouped))
+```
+
+Offensive rebound opportunities get created by the missed shots, which means that the team that shoots better will get less chances to rebound. We figured out that teams who shoot better tend to win a lot more(almost 82% of the time), so this explains why answer from next chunk is lower(only 46.2%). Even though offensive rebounds don't give me much information straight up, they still hold some predicting power: when you take into account the amount of misses (reboffensive/fgmissed), it shows that teams that crash the board still win more often than not(almost 56% of the time).
+
+```{r}
+# Looking for games to use and addind variables that I will later use
+q4_games <- team_data %>%
+  filter(season >= 2014, season <= 2023, gametype == 2) %>%
+  mutate(home_reboffensive_ratio = case_when(off_home == 1 ~ reboffensive/fgmissed, .default = 0),
+         away_reboffensive_ratio = case_when(off_home == 0 ~ reboffensive/fgmissed, .default = 0),
+         home_win = case_when((off_home == off_win) ~ 1, .default = 0),
+         home_team = case_when(off_home == 1 ~ off_team_name, .default = def_team_name),
+         away_team = case_when(off_home == 1 ~ def_team_name, .default = off_team_name))
+# Grouping by gameID
+games_grouped <- q4_games %>%
+  group_by(nbagameid) %>%
+  summarise(off_team = first(off_team_name),
+            def_team = first(def_team_name),
+            home_reboffensive_ratio = max(home_reboffensive_ratio),
+            away_reboffensive_ratio = max(away_reboffensive_ratio),
+            home_win = first(home_win)) %>%
+  filter(home_reboffensive_ratio != away_reboffensive_ratio) %>%
+  mutate(home_more_reboffensive = case_when(home_reboffensive_ratio > away_reboffensive_ratio ~ 1, .default = 0))
+# Separating instances where team with the more offensive rebounds wins the game
+games_grouped_and_filtered <- games_grouped%>%
+  filter(home_more_reboffensive == home_win)
+# Finding probability
+print(100*nrow(games_grouped_and_filtered)/nrow(games_grouped))
+```
+
+
+What % of playoff series are won by the team with home court advantage?
+
+```{r}
+q6_teams <- team_data %>%
+  filter(season >= 2014, season <= 2022, gametype == 4 )%>%
+  mutate(home_team = case_when(off_home == 1 ~ off_team_name, .default = def_team_name),
+         away_team = case_when(off_home == 1 ~ def_team_name, .default = off_team_name),
+         home_win = case_when((off_home == off_win) ~ 1, .default = 0))
+# Grouping by game
+q6games <- q6_teams %>%
+  group_by(nbagameid) %>%
+  summarise(home_team = first(home_team),
+            away_team = first(away_team),
+            home_win = first(home_win),
+            season = first(season),
+            gamedate = first(gamedate),
+            nbagameid = first(nbagameid)) %>%
+  arrange(home_team, gamedate)
+# Grouping by series
+q6series <- q6games %>%
+  group_by(home_team, away_team, season) %>%
+  summarise(total_games = n(),
+            home_wins = sum(home_win),
+            away_wins = total_games - home_wins,
+            gamedate = first(gamedate),
+            nbagameid = first(nbagameid),
+            .groups = 'drop') %>%
+  arrange(home_team, gamedate)
+# Currently each series are split into 2 parts, so I'm combining the wins from both
+q6series_real <- q6series
+q6series_copy <- q6series
+q6series_copy$home_team = q6series_real$away_team
+q6series_copy$away_team = q6series_real$home_team
+q6series_copy$home_wins = q6series_real$away_wins
+q6series_copy$away_wins = q6series_real$home_wins
+q6series_copy <- q6series_copy %>%
+  arrange(home_team, gamedate)
+q6series_real$home_wins = q6series_real$home_wins + q6series_copy$home_wins
+q6series_real$away_wins = q6series_real$away_wins + q6series_copy$away_wins
+q6series_real <- q6series_real %>%
+  mutate(round = 1, home_court_advantage = 0, series_winner = case_when(home_wins > away_wins ~ 1, .default = 0), total_games = home_wins + away_wins)
+# Figuring out who had homecourt advantage
+for (i in 1:nrow(q6series_real)) {
+  if (q6series_real$gamedate[i] < q6series_copy$gamedate[i]) {
+     q6series_real$home_court_advantage[i] = 1
+  } else {
+    q6series_real$home_court_advantage[i] = 0
+  }
+}
+# Function to figure out the round of the series
+calculate_round <- function(current_season, current_off_team, previous_season, previous_off_team, previous_round) {
+  if (current_season == previous_season & current_off_team == previous_off_team) {
+    return(previous_round + 1)
+  } else {
+    return(1)
+  }
+}
+# Applying the function
+for (i in 2:nrow(q6series_real)) {
+  q6series_real$round[i] <- calculate_round(q6series_real$season[i], q6series_real$home_team[i],
+                                       q6series_real$season[i - 1], q6series_real$home_team[i - 1],
+                                       q6series_real$round[i - 1])
+}
+# Removing the redundant data
+q6series_after_rounds <- q6series_real %>%
+  filter(home_court_advantage == 1)
+
+data_with_rounds <- q6series_after_rounds %>%
+  mutate(won_with_homecourt = case_when(home_court_advantage == 1 & series_winner == 1 ~ 1, home_court_advantage == 0 & series_winner == 0 ~ 1)) %>%
+  mutate(won_with_homecourt = replace_na(won_with_homecourt, 0))
+
+# Calculating final percentages
+q6rounds <- data_with_rounds %>%
+  group_by(round) %>%
+  summarise(total_rows = n(),
+            won_with_homecourt = sum(won_with_homecourt)) %>%
+  mutate(percent = 100*won_with_homecourt/total_rows)
+q6rounds
+```
+
+
+Round 1: 84.7%   
+Round 2: 63.9%   
+Conference Finals: 55.6%    
+Finals: 77.8%    
+
+
+
+## Playoffs Series Modeling
+
+
+```{r}
+# How much regular season data vs playoff series data? 
+# regular season: 23958, playoff games: 3186 
+#check_games_count <- team_data %>%
+#  filter(gametype == 2, season == 2023)
+#print(nrow(check_games_count))
+# Since there is a lot more data about regular season games, rather that series,
+# I will take an approach of simulating game after game, rather than full series at once.
+# And then to predict the series I can conduct inference until we get a winner of 4 games,
+# Later we can also do this repeatedly to generate a distribution of how many games the series will last.
+
+# Data Preprocessing
+#install.packages('caTools')
+library(zoo)
+library(caTools)
+library(ALSM)
+library(leaps)
+library(pROC)
+# Selecting data I will use and calculating running averages up to the point of the game happening
+part2 <- team_data %>%
+  # Arrange the data by off_team and gamedate
+  arrange(off_team, gamedate) %>%
+  # Group by team and season
+  group_by(off_team, season) %>%
+  # Calculate running average of points scored
+  mutate(running_avg_points = cumsum(points) / row_number(),
+         running_avg_possesions = cumsum(possessions) / row_number(),
+         running_avg_reboffensive = cumsum(reboffensive) / row_number(),
+         running_avg_rebdefensive = cumsum(rebdefensive) / row_number(),
+         running_avg_assists = cumsum(assists) / row_number(),
+         running_avg_fgmade = cumsum(fgmade) / row_number(),
+         running_avg_fg3made = cumsum(fg3made) / row_number(),
+         running_avg_fg3attempted = cumsum(fg3attempted) / row_number(),
+         running_avg_fgattempted = cumsum(fgattempted) / row_number(),
+         running_avg_turnovers = cumsum(turnovers) / row_number(),
+         running_avg_defensivefouls = cumsum(defensivefouls) / row_number(),
+         running_avg_ftattempted = cumsum(ftattempted) / row_number(),
+         running_total_possesions = cumsum(possessions),
+         running_total_points = cumsum(points),
+         running_total_fgmissed = cumsum(fgmissed),
+         ) %>%
+  mutate(running_avg_efg = (running_avg_fgmade + 0.5*running_avg_fg3made) / running_avg_fgattempted,
+         running_avg_orb = running_avg_reboffensive / running_avg_fgattempted,
+         running_avg_tov = running_avg_turnovers / running_avg_possesions,
+         running_avg_3ppercent = running_avg_fg3made/running_avg_fg3attempted) %>%
+  #Tried experimenting with adding the last x game stats, not just season running average, but this introduces too much noise
+  #mutate(last_10_avg_points = rollapply(points, width = 10, FUN = mean, fill = NA, align = "right", partial = TRUE)) %>%
+  # Ungroup to finalize the dataset
+  ungroup()
+
+scorers <- player_data %>%
+  arrange(nbapersonid, gamedate) %>%
+  group_by(nbapersonid, season) %>%
+  mutate(running_avg_points = cumsum(points) / row_number()) %>%
+  ungroup() %>%
+  filter(running_avg_points > 10)
+# Function to add a column to represent a number of 10 ppg scorers on a team
+number_of_10ppg_scorers <- function(nbagameidx, current_team) {
+  target_scorers <- scorers %>%
+    filter(nbagameid == nbagameidx, team == current_team)
+  return(nrow(target_scorers))
+}
+
+part2 <- part2 %>%
+  mutate(number_of_10ppg = 0)
+for (i in 1:nrow(part2)) {
+  part2$number_of_10ppg[i] <- number_of_10ppg_scorers(part2$nbagameid[i], part2$off_team[i])
+}
+part2
+
+part2_target = select(part2, contains("running"), off_team, off_home, off_win, gametype, nbagameid, number_of_10ppg, gamedate)
+part2_off_home <- part2_target  %>%
+  filter(off_home == 1)
+part2_def_home <- part2_target  %>%
+  filter(off_home == 0)
+
+data = inner_join(part2_off_home, part2_def_home, by = join_by(nbagameid))
+data <- data  %>%
+  mutate(diff_running_avg_turnovers = running_avg_turnovers.x - running_avg_turnovers.y,
+         diff_running_avg_points = running_avg_points.x - running_avg_points.y)
+
+
+set.seed(42)
+#logistic regression
+split <- sample.split(data$off_win.x, SplitRatio = 0.8)
+train <- subset(data, split == TRUE)
+test <- subset(data, split == FALSE)
+
+
+#model <- factor(gametype.x) + running_avg_efg.x + running_avg_efg.y + diff_running_avg_turnovers + diff_running_avg_points + number_of_10ppg.x + number_of_10ppg.y, data = train, family = binomial
+#Accuracy: 0.654753131908622
+#"ROC-AUC: 0.692452021937591"
+#model <- factor(gametype.x) + running_avg_efg.x + running_avg_efg.y + running_avg_orb.x + running_avg_orb.y + running_avg_tov.x + running_avg_tov.y + number_of_10ppg.x + number_of_10ppg.y, data = train, family = binomial)
+#Accuracy: 0.662122328666175
+#"ROC-AUC: 0.702992444298999"
+model <- glm(off_win.x ~ factor(gametype.x) + running_avg_efg.x + running_avg_efg.y + running_avg_orb.x + running_avg_orb.y + running_avg_tov.x + running_avg_tov.y + number_of_10ppg.x + number_of_10ppg.y + running_avg_ftattempted.x + running_avg_ftattempted.y, data = train, family = binomial)
+#Accuracy: 0.663227708179808
+#"ROC-AUC: 0.703568053258275"
+
+
+predictions <- predict(model, newdata = test, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate the model
+conf_matrix <- table(test$off_win.x, predicted_classes)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+
+# Confusion Matrix
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# ROC-AUC
+roc_curve <- roc(test$off_win.x, predictions)
+auc <- auc(roc_curve)
+print(paste("ROC-AUC:", auc))
+
+# Plot ROC curve
+plot(roc_curve, main="ROC Curve")
+
+
+# Based on my attempts so far, this seems to be about the ceiling of the model. Predicting an NBA game is a complex task, and there is only a limited amount of insights a logistic regression can 'understand'
+# For now, let's try this model out in the 2024 NBA playoffs, but before that we need to simulate a series instead of the single game
+set.seed(122)
+#Simulate a series
+series <- function(data) {
+  total_wins.x = 0
+  total_wins.y = 0
+  game_counter = 0
+  while ((total_wins.x < 4) & (total_wins.y < 4)) {
+    if ((game_counter == 2) | (game_counter == 3) | (game_counter == 5)) {
+      new_data <- data %>%
+        rename_with(~ gsub("\\.x$", ".temp", .), ends_with(".x")) %>%
+        rename_with(~ gsub("\\.y$", ".x", .), ends_with(".y")) %>%
+        rename_with(~ gsub("\\.temp$", ".y", .), ends_with(".temp"))
+      home_team_win_chance = predict(model, newdata = new_data, type = "response")
+      predicted_class <- rbinom(length(home_team_win_chance), size = 1, prob = home_team_win_chance)
+      if (predicted_class == 1) {
+        total_wins.y = total_wins.y + 1
+      } else {
+        total_wins.x = total_wins.x + 1
+      }
+      game_counter = game_counter + 1
+    } else {
+      home_team_win_chance = predict(model, newdata = data, type = "response")
+      predicted_class <- rbinom(length(home_team_win_chance), size = 1, prob = home_team_win_chance)
+      if (predicted_class == 1) {
+        total_wins.x = total_wins.x + 1
+      } else {
+        total_wins.y = total_wins.y + 1
+      }
+      game_counter = game_counter + 1
+    }
+  }
+  if (total_wins.x > total_wins.y) {
+    home_win = 1
+  } else {
+    home_win = 0
+  }
+  return(c(game_counter, home_win))
+}
+#Simulate a series 1000 times and create a distrubution of winners and games count
+series_distribution <- function(data) {
+  results <- replicate(1000, series(data), simplify = FALSE) %>%
+    do.call(rbind, .) %>%
+    as.data.frame()
+
+  colnames(results) <- c("game_counter", "home_win")
+  results$game_counter <- as.numeric(results$game_counter)
+  results$home_win <- as.logical(results$home_win)
+  
+  return(results)
+}
+
+find_most_common_game_value <- function(data) {
+  target = data %>%
+    count(game_counter) %>%
+    arrange(desc(n)) %>%
+    slice(1) %>%
+    pull(game_counter)
+  return(target)
+} 
+
+#Function to simulate playoff series from 2024 playoffs given 2 team names(team1 home team)
+simulate_2024_series <- function(team1, team2) {
+  team1data <- part2_target %>%
+    filter(off_team == team1) %>%
+    filter(gamedate == max(gamedate)) %>%
+    rename_with(~ paste0(., ".x"))
+  team2data <- part2_target %>%
+    filter(off_team == team2) %>%
+    filter(gamedate == max(gamedate)) %>%
+    rename_with(~ paste0(., ".y"))
+  combined <- cbind(team1data, team2data)
+  series_results = series_distribution(combined)
+  team1wins <- series_results %>%
+    filter(home_win == TRUE)
+  team2wins <- series_results %>%
+    filter(home_win == FALSE)
+  team1winchance = nrow(team1wins)
+  team2winchance = nrow(team2wins)
+  expected_games1 = find_most_common_game_value(team1wins)
+  expected_games2 = find_most_common_game_value(team2wins)
+  return(c(team1, team1winchance/10, expected_games1, team2, team2winchance/10, expected_games2))
+}
+
+simulate_2024_all_conference_matchups <- function(teams) {
+  column_names <- c("team.x", "odds.x", "games.x", "team.y", "odds.y", "games.y")
+  empty_dataset <- data.frame(matrix(ncol = 6, nrow = 0))
+  
+  for (i in 1:length(teams)) {
+    for (j in 1:length(teams)) {
+      if (i < j) {
+        simulation = simulate_2024_series(teams[i], teams[j])
+        empty_dataset <- rbind(empty_dataset, simulation)
+      }
+    }
+  }
+  colnames(empty_dataset) <- column_names
+
+  new_data <- empty_dataset %>%
+        rename_with(~ gsub("\\.x$", ".temp", .), ends_with(".x")) %>%
+        rename_with(~ gsub("\\.y$", ".x", .), ends_with(".y")) %>%
+        rename_with(~ gsub("\\.temp$", ".y", .), ends_with(".temp"))
+  new_data <- rbind(empty_dataset, new_data)
+  final_dataset <- data.frame(matrix(ncol = 4, nrow = 0))
+  for (i in 1:length(teams)) {
+    selected <- new_data %>%
+      filter(team.x == teams[i], team.y == teams[9-i])
+    final_dataset <- rbind(final_dataset, c(teams[i], selected$odds.x, 0, 0))
+  }
+  column_names <- c("team", "round2", "round3", "round4")
+  colnames(final_dataset) <- column_names
+  final_dataset <- as.data.frame(final_dataset)
+  for (i in 1:length(teams)) {
+    if ((i == 1)|(i == 8)) {
+      selected4 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[4])
+      selected5 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[5])
+      final_dataset$round3[i] = as.numeric(final_dataset$round2[i])*(as.numeric(final_dataset$round2[4])*as.numeric(selected4$odds.x)+as.numeric(final_dataset$round2[5])*as.numeric(selected5$odds.x))/10000
+    }
+    if ((i == 2)|(i == 7)) {
+      selected3 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[3])
+      selected6 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[6])
+      final_dataset$round3[i] = as.numeric(final_dataset$round2[i])*(as.numeric(final_dataset$round2[3])*as.numeric(selected3$odds.x)+as.numeric(final_dataset$round2[6])*as.numeric(selected6$odds.x))/10000
+    }
+    if ((i == 3)|(i == 6)) {
+      selected2 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[2])
+      selected7 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[7])
+      final_dataset$round3[i] = as.numeric(final_dataset$round2[i])*(as.numeric(final_dataset$round2[2])*as.numeric(selected2$odds.x)+as.numeric(final_dataset$round2[7])*as.numeric(selected7$odds.x))/10000
+    }
+    if ((i == 4)|(i == 5)) {
+      selected1 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[1])
+      selected8 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[8])
+      final_dataset$round3[i] = as.numeric(final_dataset$round2[i])*(as.numeric(final_dataset$round2[1])*as.numeric(selected1$odds.x)+as.numeric(final_dataset$round2[8])*as.numeric(selected8$odds.x))/10000
+    }
+  }
+  for (i in 1:length(teams)) {
+    if ((i == 1)|(i == 8)|(i == 4)|(i == 5)) {
+      selected3 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[3])
+      selected6 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[6])
+      selected2 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[2])
+      selected7 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[7])
+      final_dataset$round4[i] = as.numeric(final_dataset$round3[i])*(as.numeric(final_dataset$round3[3])*as.numeric(selected3$odds.x)+as.numeric(final_dataset$round3[2])*as.numeric(selected2$odds.x)
+                                                                     +as.numeric(final_dataset$round3[6])*as.numeric(selected6$odds.x)+as.numeric(final_dataset$round3[7])*as.numeric(selected7$odds.x))/10000
+    }
+    if ((i == 2)|(i == 7)|(i == 3)|(i == 6)) {
+      selected4 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[4])
+      selected5 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[5])
+      selected1 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[1])
+      selected8 <- new_data %>%
+        filter(team.x == teams[i], team.y == teams[8])
+      final_dataset$round4[i] = as.numeric(final_dataset$round3[i])*(as.numeric(final_dataset$round3[4])*as.numeric(selected4$odds.x)+as.numeric(final_dataset$round3[5])*as.numeric(selected5$odds.x)
+                                                                     +as.numeric(final_dataset$round3[1])*as.numeric(selected1$odds.x)+as.numeric(final_dataset$round3[8])*as.numeric(selected8$odds.x))/10000
+    }
+  }
+  return(final_dataset)
+  return(final_dataset)
+}
+east = simulate_2024_all_conference_matchups(c('BOS', 'NYK', 'MIL', 'CLE', 'ORL', 'IND', 'PHI', 'MIA'))
+west = simulate_2024_all_conference_matchups(c('OKC', 'DEN', 'MIN', 'LAC', 'DAL', 'PHX', 'LAL', 'NOP'))
+odds_to_advance = rbind(east, west)
+odds_to_advance <- odds_to_advance %>%
+  mutate(
+    round2 = round(as.numeric(round2), 1),
+    round3 = round(as.numeric(round3), 1),
+    round4 = round(as.numeric(round4), 1)) %>%
+  rename(conference_finals = round3, nba_finals = round4)
+odds_to_advance
+```
+
+In this chunk I implemented a logistic regression model to predict a winner of a given NBA game. Logistic regression is one of the most common and simple models used for classification tasks. This model works by analyzing the relationship between variables we selected(if the game is playoffs, eFG%, offensive rebound %, turnovers per possession, average ft attempts, amount of 10 ppg scorers on a team) and the game's result to estimate the probability that a given team will win an upcoming game. Roughly speaking, by applying some basic mathematics under the hood, the model finds patterns and insights in training data, which are then applied for future predictions.
+In addition to this model, I wrote some functions that will use this model to simulate the series X amount of times over(in my case 1000). I then use the generated sample to find probabilities of both teams winning, as well as the predicted amount of games it will take for each team to win.
+Strengths: Logistic regression is a pretty simple model, but after doing some testing below(I fitted a RandomForest model over the same data, and tried to tune some parameters), logistic regression showed results slightly higher than RandomForest(I probably could have done a better job tinkering with RF to get better accuracy, but this is still a good result). I also tried to make use of player data, so I added a variable representing how many 10 ppg scorers are on the team. I believe that there are more insights that can be gathered from player data, but there's only as much signal logistic regression can find in this data.
+Weaknesses: I believe that logistic regression is at it's ceiling with the current results(meaning that new data and etc. are unlikely to produce any meaningful performance boost), and to gain noticeable improvements to the results, we will need to leverage a more complex model.
+Because of small amount of playoffs series in the data, I made a decision to train a model that will predict games, which I later use to simulate a series a lot of times over. Playoff data is hard to get as you can only get 15 series worth of data annually, on top of that, basketball is ever changing, so the data from 15 years ago, might not be as insightful as it once was. This is an alternative approach worth exploring, but will require more data. Another thing I would have done is a more complex model, like a neural network. In particular, I could use a Recurrent Neural Network like LSTM, or other architecture, where the information from generated game 1 would flow as input to help us generate the results of game 2 and so on. I believe that this would be a insightful way to work with the data, and this could lead to neural network having a good understanding of current series score, it's importance, homecourt advantages, etc(small intricacies of playoff basketball). Another thing that would be useful is to not just have running season averages to predict the game, but also the averages over the past 10 games, for example. This will allow us to figure out if a team is in a good form now, or on a losing streak with some injuries, and I believe this can be a big improvement to the results. Neural network in theory should provide for a lot more scalable solution as well. Predicting a winner of a playoff series is a very complex task, and I believe that neural network is the only way to really fit all the intricacies of such task.
+
+```{r}
+#Experimenting with fitting a more complex model over this data, but the results don't seem to improve.
+library(randomForest)
+
+grid <- expand.grid(.mtry = c(1, 2, 3, 4, 5),
+                    .ntree = c(100, 250, 500, 750, 1000))
+forest_model <- randomForest(off_win.x ~ gametype.x + running_avg_efg.x + running_avg_efg.y + running_avg_orb.x + running_avg_orb.y + running_avg_tov.x + running_avg_tov.y + number_of_10ppg.x + number_of_10ppg.y + running_avg_ftattempted.x + running_avg_ftattempted.y, data = train, tuneGrid = grid)
+
+predictions <- predict(forest_model, test)
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate the model
+conf_matrix <- table(test$off_win.x, predicted_classes)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+```
+
+## Finding Insights   
+
+
+```{r}
+# Here I will implement opp_efg to hopefully let the model understand how important is defense.
+part3 <- team_data %>%
+  # Arrange the data by off_team and gamedate
+  arrange(def_team, gamedate) %>%
+  # Group by team and season
+  group_by(def_team, season) %>%
+  # Calculate running average of points scored
+  mutate(running_avg_points = cumsum(points) / row_number(),
+         running_avg_possesions = cumsum(possessions) / row_number(),
+         running_avg_reboffensive = cumsum(reboffensive) / row_number(),
+         running_avg_rebdefensive = cumsum(rebdefensive) / row_number(),
+         running_avg_assists = cumsum(assists) / row_number(),
+         running_avg_fgmade = cumsum(fgmade) / row_number(),
+         running_avg_fg3made = cumsum(fg3made) / row_number(),
+         running_avg_fg3attempted = cumsum(fg3attempted) / row_number(),
+         running_avg_fgattempted = cumsum(fgattempted) / row_number(),
+         running_avg_turnovers = cumsum(turnovers) / row_number(),
+         running_avg_defensivefouls = cumsum(defensivefouls) / row_number(),
+         running_avg_ftattempted = cumsum(ftattempted) / row_number(),
+         running_total_possesions = cumsum(possessions),
+         running_total_points = cumsum(points),
+         running_total_fgmissed = cumsum(fgmissed),
+         ) %>%
+  mutate(running_avg_efg = (running_avg_fgmade + 0.5*running_avg_fg3made) / running_avg_fgattempted,
+         running_avg_orb = running_avg_reboffensive / running_avg_fgattempted,
+         running_avg_tov = running_avg_turnovers / running_avg_possesions,
+         running_avg_3ppercent = running_avg_fg3made/running_avg_fg3attempted) %>%
+  ungroup() %>%
+  arrange(off_team, gamedate)
+
+part2$running_avg_opp_efg = part3$running_avg_efg
+part2_target = select(part2, contains("running"), off_team, off_home, off_win, gametype, nbagameid, number_of_10ppg, gamedate)
+part2_off_home <- part2_target  %>%
+  filter(off_home == 1)
+part2_def_home <- part2_target  %>%
+  filter(off_home == 0)
+
+data = inner_join(part2_off_home, part2_def_home, by = join_by(nbagameid))
+data <- data  %>%
+  mutate(diff_running_avg_turnovers = running_avg_turnovers.x - running_avg_turnovers.y,
+         diff_running_avg_points = running_avg_points.x - running_avg_points.y)
+
+
+set.seed(42)
+#logistic regression
+split <- sample.split(data$off_win.x, SplitRatio = 0.8)
+train <- subset(data, split == TRUE)
+test <- subset(data, split == FALSE)
+
+#"Accuracy: 0.680913780397937"
+#"ROC-AUC: 0.737183949844236"
+model <- glm(off_win.x ~ factor(gametype.x) + running_avg_efg.x + running_avg_efg.y + running_avg_orb.x + running_avg_orb.y + running_avg_tov.x + running_avg_tov.y + number_of_10ppg.x + number_of_10ppg.y + running_avg_ftattempted.x + running_avg_ftattempted.y + running_avg_opp_efg.x + running_avg_opp_efg.y, data = train, family = binomial)
+
+#"Accuracy: 0.680176860722181"
+#"ROC-AUC: 0.737533426712367"
+#model <- glm(off_win.x ~ factor(gametype.x)*(running_avg_efg.x + running_avg_efg.y + running_avg_orb.x + running_avg_orb.y + running_avg_tov.x + running_avg_tov.y + number_of_10ppg.x + number_of_10ppg.y + running_avg_ftattempted.x + running_avg_ftattempted.y + running_avg_opp_efg.x + running_avg_opp_efg.y), data = train, family = binomial)
+
+predictions <- predict(model, newdata = test, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate the model
+conf_matrix <- table(test$off_win.x, predicted_classes)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+
+# Confusion Matrix
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# ROC-AUC
+roc_curve <- roc(test$off_win.x, predictions)
+auc <- auc(roc_curve)
+print(paste("ROC-AUC:", auc))
+
+# Plot ROC curve
+plot(roc_curve, main="ROC Curve")
+```
+
+
+
+Let's take a look at the results from the previous part. Coincidentally, we predicted the eastern conference perfectly. Predicted all the first round match ups: Indy winning against Bucks(even though the model doesn't know that Giannis is injured, it still values Pacers very highly) and Knicks beating the 76ers(it didn't know that Joel is back from injury, and since he was out for some long this affected the stats, thus affecting the simulation, but still ended up being correct with 65-35 odds in favor of NYC to win the series). We also predicted the second round correct, with Indy and Boston advancing to the conference finals, where Boston are big favorites, exactly like it happened in real life.
+Unfortunately, the predictions for the Western conference weren't as good. In the first round there are already 2 questionable moments: Dallas is barely a favorite to win against Clippers(51-49), but the model doesn't know that Kawhi is injured so let's assume this is reasonable, the second issue is that the Suns are favored to win against the Wolves. This is a pretty bad prediction because we all saw what happened in real life. I suspect there might be 2 reasons why the model made such decision: 1) KAT was injured for a chunk of a season, which affected the team stats, which would affect the prediction, but the Suns weren't healthy all year long either, so this should go both ways. 2) Minnesota is a very good defensive team, and my model is mostly based of the offensive stats, so it seems to not understand how much value the defense adds to Minnesota. In the second round model has OKC and DEN as big favorites, but both these teams ended up losing in real life. OKC-DAL is a series that we couldn't predict because of bad luck(I know that Dallas didn't make the playoffs last year, but they did for years prior, and this is a good example). Dallas had all their role players stepping up massively, like PJ Washington dropping almost 30 two games in a row, and when you have Luka and Kyrie and your role players play good, there is only as much an opponent can possiblty do. Dallas also had a weird year, where they really started working well as a team very close to the end of a season, so because of this momentum, the 5th seed and the season stats are not as representative. Potential solution would be to implement stats over past X games too, nut just the entire season average. 
+MIN-DEN is a series that wasn't predicted correctly because my model didn't account for KAT's injury during the season, because it doesn't understand how good is Minnesota defensively and because it doesn't understand that having Gobert, KAT and Naz Reid on a team is the best match up you can possibly have to stop Nikola Jokic. And despite all that, in real life not many people believed that Wolves will win against Denver.
+After implemeting opponent's efg into the model, the Accuracy increased, meaning that our model did get some valuable insights from the new data. I believe that there are other variables related to defence that can boost out model even further, so I would work on that if I had more time. I also believe that in the NBA when playoffs time comes the game really slows down and it becomes a different game of basketball. So our factor(gametype.x) variable should influence the importance of other variables too. I believe that this can be done by multiplying by factor(gametype.x), instead of just adding it. When attempted to do this on a model it lost some accuracy, but ROC-AUC value increased a tiny bit. The drop in accuracy can be explained because we are predicting a single game at the time, so this drop is not representative of a drop in accuracy when we predict the series. But the small ROC AUC jump might be indicating that the interaction between factor(gametype.x) and other variables does indeed help the model. 
+
+
+
+
+
